@@ -2248,12 +2248,13 @@ x, y, z = symbols('x y z')
 f = Function('f')
 f = x**2 + 2*y**2 + 3*z**2 + 2*x*y + 2*x*z
 f
+hessian(f, (x, y, z))
 H = np.array(hessian(f, (x, y, z)))
-H
+H # see dtype=object
 e, v = la.eig(H) # error, see dtype
 H.dtype # this is the problem
 type(H)
-H.values # error
+H.values # error, this is for Pandas and returns a numpy array
 H2 = H.astype(np.float64)
 H2.dtype # ok now
 e, v = la.eig(H2)
@@ -2291,7 +2292,7 @@ plt.legend()
 
 # Local and global minima
 def f(x, offset):
-    return -np.sinc(x-offset)
+    return -np.sinc(x-offset) # sin(pi*x)/(pi*x)
 x = np.linspace(-20, 20, 100)
 plt.plot(x, f(x, 5));
 
@@ -2308,7 +2309,7 @@ plt.legend(loc='lower left')
 lower = np.random.uniform(-20, 20, 100)
 upper = lower + 1
 sols = [opt.minimize_scalar(f, args=(5,), bracket=(l, u)) for (l, u) in zip(lower, upper)]
-# -> get a 100 solutions from different starting points for brent
+# -> get 100 solutions from different starting points for brent
 idx = np.argmin([sol.fun for sol in sols])
 # -> select the lowest of the minima
 sol = sols[idx]
@@ -2390,6 +2391,8 @@ Some algorithms also determine the appropriate value of α at each stage by usin
 
 The problem is that the gradient may not point towards the global minimum especially when the condition number is large, and we are forced to use a small α for convergence. Becasue gradient descent is unreliable in practice, it is not part of the scipy optimize suite of functions, but we will write a custom function below to ilustrate how it works.
 """
+import numpy.linalg as la
+from scipy import optimize as opt
 # Rosenbrock (banana) function
 # see just above & run
 def rosen_der(x):
@@ -2445,12 +2448,30 @@ plt.plot(ps[:, 0], ps[:, 1], '-o')
 plt.subplot(122)
 plt.semilogy(range(len(ps)), rosen(ps.T));
 
+
 """
 Newton’s method and variants
 
 To find a minimum -> find root of the derivative -> find root using Newton's method generalized to n dimensions (Jacobian becomes Hessian).
 """
+
+import numpy as np
+import matplotlib.pyplot as plt
+import numpy.linalg as la
+from scipy import optimize as opt
 from scipy.optimize import rosen, rosen_der, rosen_hess
+
+# Rosenbrock (banana) function example - contour plotting
+def rosen(x):
+    """Generalized n-dimensional version of the Rosenbrock function"""
+    return sum(100*(x[1:]-x[:-1]**2.0)**2.0 +(1-x[:-1])**2.0)
+x = np.linspace(-5, 5, 100)
+y = np.linspace(-5, 5, 100)
+X, Y = np.meshgrid(x, y)
+Z = rosen(np.vstack([X.ravel(), Y.ravel()])).reshape((100,100))
+
+# Initial starting position
+x0 = np.array([4,-4.1])
 ps = [x0]
 opt.minimize(rosen, x0, method='Newton-CG', jac=rosen_der, hess=rosen_hess, callback=reporter)
 ps = np.array(ps)
@@ -2501,15 +2522,205 @@ plt.semilogy(range(len(ps)), rosen(ps.T));
 
 
 
-
-
 """
 
 Constrained optimization
 
+http://people.duke.edu/~ccc14/sta-663/BlackBoxOptimization.html#constrained-optimization
+https://docs.scipy.org/doc/scipy/reference/tutorial/optimize.html#constrained-minimization-of-multivariate-scalar-functions-minimize
+
+sometimes the contraint can be incorporated into the goal function (e.g. p>0 by replacing p with e^q and minimizing for q) -> then you can use the unconstrained optimization
+otherwise constrained optimization, methods used internally
+- constraint violation penalties
+- barriers
+- Lagrange multipliers
+"""
+
+# example from SciPy tutorial
+def f(x):
+    return -(2*x[0]*x[1] + 2*x[0] - x[0]**2 - 2*x[1]**2)
+x = np.linspace(0, 3, 100)
+y = np.linspace(0, 3, 100)
+X, Y = np.meshgrid(x, y)
+Z = f(np.vstack([X.ravel(), Y.ravel()])).reshape((100,100))
+plt.contour(X, Y, Z, np.arange(-1.99,10, 1)); # loss function
+plt.plot(x, x**3, 'k:', linewidth=1) # equality constraint
+plt.plot(x, (x-1)**4+2, 'r-', linewidth=1) # inequality constraint
+plt.fill([0.5,0.5,1.5,1.5], [2.5,1.5,1.5,2.5], alpha=0.3) # bounds
+plt.axis([0,3,0,3])
+
+# setting constraints
+"""
+inequlaity cosntraint assumes a Cj * x ≥ 0 form
+(as usual) the jac is optional and will be numerically estimted if not provided
+"""
+cons = ({'type': 'eq',
+         'fun' : lambda x: np.array([x[0]**3 - x[1]]),
+         'jac' : lambda x: np.array([3.0*(x[0]**2.0), -1.0])},
+        {'type': 'ineq',
+         'fun' : lambda x: np.array([x[1] - (x[0]-1)**4 - 2])})
+bnds = ((0.5, 1.5), (1.5, 2.5))
+
+# starting point
+x0 = [0, 2.5]
+
+# unconstrained optimization
+ux = opt.minimize(f, x0, constraints=None)
+ux
+
+# constrained optimization
+cx = opt.minimize(f, x0, bounds=bnds, constraints=cons)
+cx
+
+# plotting the minimum points (unconstrained and constrained)
+#x = np.linspace(0, 3, 100)
+#y = np.linspace(0, 3, 100)
+#X, Y = np.meshgrid(x, y)
+#Z = f(np.vstack([X.ravel(), Y.ravel()])).reshape((100,100))
+plt.contour(X, Y, Z, np.arange(-1.99,10, 1));
+plt.plot(x, x**3, 'k:', linewidth=1)
+plt.plot(x, (x-1)**4+2, 'k:', linewidth=1)
+plt.text(ux['x'][0], ux['x'][1], 'x', va='center', ha='center', size=20, color='blue')
+plt.text(cx['x'][0], cx['x'][1], 'x', va='center', ha='center', size=20, color='red')
+plt.fill([0.5,0.5,1.5,1.5], [2.5,1.5,1.5,2.5], alpha=0.3)
+plt.axis([0,3,0,3]);
 
 """
 
+Curve fitting
+
+http://people.duke.edu/~ccc14/sta-663/BlackBoxOptimization.html#curve-fitting
+
+Case: use non-linear least squares to fit a function to data, perhaps to estimate paramters for a mechanistic or phenomenological model
+The curve_fit function uses the quasi-Newton Levenberg-Marquadt aloorithm to perform such fits. Behind the scnees, curve_fit is just a wrapper around the leastsq function that we have already seen in a more conveneint format.
+"""
+from scipy.optimize import curve_fit
+
+def logistic4(x, a, b, c, d):
+    """The four paramter logistic function is often used to fit dose-response relationships."""
+    return ((a-d)/(1.0+((x/c)**b))) + d
+
+nobs = 24
+xdata = np.linspace(0.5, 3.5, nobs)
+ptrue = [10, 3, 1.5, 12]
+ydata = logistic4(xdata, *ptrue) + 0.5*np.random.random(nobs)
+
+popt, pcov = curve_fit(logistic4, xdata, ydata)
+# returns: estimated parameters and var-covar matrix
+
+perr = yerr = np.sqrt(np.diag(pcov))
+# table of std.def of the esitmated parameters
+print('Param\tTrue\tEstim (+/- 1 SD)')
+for p, pt, po, pe  in zip('abcd', ptrue, popt, perr):
+    print('%s\t%5.2f\t%5.2f (+/-%5.2f)' % (p, pt, po, pe))
+    # prints row by row data for each parameter
+# checking
+list(zip('abcd', ptrue, popt, perr))
+
+x = np.linspace(0, 4, 100)
+y = logistic4(x, *popt)
+plt.plot(xdata, ydata, 'o')
+plt.plot(x, y);
+
+"""
+
+Finding parameters for ODE models
+
+http://people.duke.edu/~ccc14/sta-663/BlackBoxOptimization.html#finding-paraemeters-for-ode-models
+
+Curve x(t) defined implicitly
+dx/dt = -kx
+Estimate k and x0 using data.
+Sic: this can be solved analytically
+
+"""
+from scipy.integrate import odeint
+from scipy.optimize import curve_fit
+
+# the ODE describing the curve
+def f(x, t, k):
+    """Simple exponential decay.
+    """
+    return -k*x
+
+# the curve defined by solving the ODE
+# returns the value of x(t) at a given t, and given the parameters k and x0
+def x(t, k, x0):
+    """
+    Solution to the ODE x’(t) = f(t,x,k) with initial condition x(0) = x0
+    """
+    x = odeint(f, x0, t, args=(k,))
+    # odeint( dx/dt(at t), initial_condition=x(0), additional_parameters_for_dx/dt )
+    return x.ravel()
+
+# True parameter values
+x0_ = 10
+k_ = 0.1*np.pi
+
+# Some random data genererated from closed form solution plus Gaussian noise
+ts = np.sort(np.random.uniform(0, 10, 200))
+xs = x0_*np.exp(-k_*ts) + np.random.normal(0,0.1,200) # x(t) given in a closed form / explicit t
+plt.plot(ts, xs)
+
+popt, cov = curve_fit(x, ts, xs)
+# curve_fit( function(x, ...), t_sequence, x(t)_sequence )
+k_opt, x0_opt = popt
+# optimal parameters: k, x0
+print("k = %g" % k_opt)
+print("x0 = %g" % x0_opt)
+t = np.linspace(0, 10, 100)
+plt.plot(ts, xs, '.', t, x(t, k_opt, x0_opt), '-');
+
+"""
+
+Optimization of graph node placement
+
+http://people.duke.edu/~ccc14/sta-663/BlackBoxOptimization.html#optimization-of-graph-node-placement
+
+E.g. using optimization to change the layout of nodes of a graph.
+Nodes connected by springs, with some nodes on fixed positions.
+Optimization finds the configuraiton of lowest potential energy given that some nodes are fixed (set up as boundary constraints on the positions of the nodes).
+
+the ordination algorithm Multi-Dimenisonal Scaling (MDS) works on a very similar idea
+MDS is often used in exploratory analysis of high-dimensional data to get some intuitive understanding of its “structure”
+
+Given
+P0 is the initial location of nodes
+P is the minimal energy location of nodes given constraints
+A is a connectivity matrix - there is a spring between i and j if Aij=1
+Lij is the resting length of the spring connecting i and j
+In addition, there are a number of fixed nodes whose positions are pinned.
+"""
+from scipy import optimize as opt
+from scipy.spatial.distance import pdist, squareform
+n = 20
+k = 1 # spring stiffness
+P0 = np.random.uniform(0, 5, (n,2))
+A = np.ones((n, n))
+A[np.tril_indices_from(A)] = 0
+L = A.copy()
+def energy(P):
+    P = P.reshape((-1, 2))
+    D = squareform(pdist(P))
+    return 0.5*(k * A * (D - L)**2).sum()
+energy(P0.ravel())
+# fix the position of the first few nodes just to show constraints
+fixed = 4
+bounds = (np.repeat(P0[:fixed,:].ravel(), 2).reshape((-1,2)).tolist() +
+          [[None, None]] * (2*(n-fixed)))
+bounds[:fixed*2+4]
+sol = opt.minimize(energy, P0.ravel(), bounds=bounds)
+plt.scatter(P0[:, 0], P0[:, 1], s=25)
+P = sol.x.reshape((-1,2))
+plt.scatter(P[:, 0], P[:, 1], edgecolors='red', facecolors='none', s=30, linewidth=2);
+
+"""
+Optimization of standard statistical models
+
+http://people.duke.edu/~ccc14/sta-663/BlackBoxOptimization.html#optimization-of-standard-statistical-models
+
+
+"""
 
 # <-------------------------------------------------------------------------------------------
 
