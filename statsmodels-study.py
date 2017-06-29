@@ -83,7 +83,7 @@ sm.graphics.plot_partregress('Lottery', 'Wealth', ['Region', 'Literacy'], data=d
 
 
 """
-Fitting models using R-style formulas¶
+Fitting models using R-style formulas
 """
 
 import statsmodels.formula.api as smf
